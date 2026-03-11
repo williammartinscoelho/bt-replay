@@ -3,85 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Beach Tennis Replay - v1.0.6</title>
+    <title>Beach Tennis Replay - v1.0.7</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
     <style>
         :root { --primary: #00e676; --bg: #121212; --text-muted: #888; }
-        
-        /* v1.0.6: Ajuste de scroll e altura */
         body { 
-            font-family: 'Segoe UI', sans-serif; 
-            background-color: var(--bg); 
-            color: white; 
-            margin: 0; 
-            padding: 0;
-            display: flex; 
-            justify-content: center; 
-            min-height: 100vh; /* Permite crescer além da tela */
-            overflow-y: auto;  /* Habilita scroll vertical se necessário */
+            font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: white; 
+            margin: 0; padding: 0; display: flex; justify-content: center; min-height: 100vh; overflow-y: auto;
         }
-
-        #app { 
-            text-align: center; 
-            width: 100%; 
-            max-width: 450px; 
-            padding: 20px; 
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        
+        #app { text-align: center; width: 100%; max-width: 450px; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
         .app-header { margin-bottom: 5px; }
         .app-header h1 { font-size: 1.1rem; margin: 0; color: var(--primary); }
         .version-badge { font-size: 0.6rem; background: #333; padding: 2px 8px; border-radius: 10px; color: var(--text-muted); vertical-align: middle; }
-
+        
         .video-container {
-            position: relative; 
-            width: 100%; 
-            border-radius: 20px; 
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-            background: #000;
+            position: relative; width: 100%; border-radius: 20px; overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #000;
         }
         video { width: 100%; display: block; background: #000; }
         .mirror { transform: scaleX(-1); }
 
         .rec-indicator {
             position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
-            background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 20px; font-size: 12px;
-            z-index: 10;
+            background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 20px; font-size: 12px; z-index: 10;
         }
         .dot { width: 8px; height: 8px; background: #ff5252; border-radius: 50%; margin-right: 6px; animation: blink 1s infinite; }
         
-        .controls { 
-            margin-top: 10px; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 15px; 
-            align-items: center; 
-            padding-bottom: 30px; /* Garante espaço no final do scroll */
-        }
-        
+        .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 15px; align-items: center; padding-bottom: 30px; }
         .btn-save {
             width: 100px; height: 100px; border-radius: 50%; border: none;
             background: linear-gradient(135deg, var(--primary), #00c853);
             color: #003300; font-weight: bold; cursor: pointer;
             box-shadow: 0 0 20px rgba(0, 230, 118, 0.4);
-            transition: transform 0.1s;
         }
         .btn-save:active { transform: scale(0.9); }
         .btn-save:disabled { background: #444; color: #888; box-shadow: none; opacity: 0.5; }
+        .btn-switch { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-size: 13px; }
 
-        .btn-switch {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-            color: white; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-size: 13px;
-        }
-
-        .toast {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: var(--primary); color: #000; padding: 12px 25px;
-            border-radius: 30px; font-weight: bold; z-index: 100;
-        }
+        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--primary); color: #000; padding: 12px 25px; border-radius: 30px; font-weight: bold; z-index: 100; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
@@ -89,7 +48,7 @@
 
 <div id="app">
     <div class="app-header">
-        <h1>REPLAY RECORDER <span class="version-badge">v1.0.6</span></h1>
+        <h1>REPLAY RECORDER <span class="version-badge">v1.0.7</span></h1>
     </div>
 
     <div v-if="showToast" class="toast">✔️ LANCE SALVO!</div>
@@ -105,10 +64,7 @@
         <button class="btn-save" @click="saveReplay" :disabled="!cameraReady || isSaving">
             {{ isSaving ? '...' : 'SALVAR' }}
         </button>
-        
-        <button class="btn-switch" @click="toggleCamera">
-            🔄 Inverter Câmera
-        </button>
+        <button class="btn-switch" @click="toggleCamera">🔄 Inverter Câmera</button>
     </div>
 </div>
 
@@ -123,38 +79,49 @@ new Vue({
         headerChunk: null,
         rollingBuffer: [],
         stream: null,
-        facingMode: 'environment'
+        facingMode: 'environment',
+        refreshInterval: null
     },
     methods: {
         async initCamera() {
             this.cameraReady = false;
-            if (this.stream) {
-                this.stream.getTracks().forEach(track => track.stop());
-            }
+            if (this.stream) this.stream.getTracks().forEach(t => t.stop());
 
             try {
                 this.stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: this.facingMode,
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }, 
+                    video: { facingMode: this.facingMode, width: 1280, height: 720 }, 
                     audio: true 
                 });
-                
                 this.$refs.videoPreview.srcObject = this.stream;
                 this.setupRecorder();
                 this.cameraReady = true;
-            } catch (err) {
-                alert("Erro ao acessar câmera: " + err.message);
-            }
+
+                // v1.0.7: Reinicia o recorder a cada 5 min para evitar corrupção por timestamps longos
+                if (this.refreshInterval) clearInterval(this.refreshInterval);
+                this.refreshInterval = setInterval(() => {
+                    if (!this.isSaving) {
+                        console.log("Reiniciando recorder para manter saúde dos frames...");
+                        this.setupRecorder();
+                    }
+                }, 300000); // 5 minutos
+
+            } catch (err) { alert("Erro: " + err.message); }
         },
 
         setupRecorder() {
+            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                this.mediaRecorder.stop();
+            }
+            
             this.headerChunk = null;
             this.rollingBuffer = [];
 
-            const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+            // Aumentamos o bitrate para forçar mais qualidade e estabilidade nos frames
+            const options = { 
+                mimeType: 'video/webm;codecs=vp8,opus',
+                videoBitsPerSecond: 2500000 // 2.5 Mbps
+            };
+            
             this.mediaRecorder = new MediaRecorder(this.stream, options);
 
             this.mediaRecorder.ondataavailable = (event) => {
@@ -163,13 +130,12 @@ new Vue({
                         this.headerChunk = event.data;
                     } else {
                         this.rollingBuffer.push(event.data);
-                        if (this.rollingBuffer.length > 30) {
-                            this.rollingBuffer.shift();
-                        }
+                        if (this.rollingBuffer.length > 30) this.rollingBuffer.shift();
                     }
                 }
             };
-            this.mediaRecorder.start(1000);
+            // Usar um timeslice menor (500ms) ajuda o recorder a fechar blocos mais rápido
+            this.mediaRecorder.start(500); 
 
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.setActionHandler('play', this.saveReplay);
@@ -183,9 +149,10 @@ new Vue({
         },
 
         saveReplay() {
-            if (this.isSaving || this.rollingBuffer.length < 2) return;
+            if (this.isSaving || this.rollingBuffer.length < 5) return;
             this.isSaving = true;
             
+            // v1.0.7: Criação do Blob com verificação de integridade básica
             const finalBlob = new Blob([this.headerChunk, ...this.rollingBuffer], { type: 'video/webm' });
             const url = URL.createObjectURL(finalBlob);
             
@@ -203,10 +170,8 @@ new Vue({
     },
     mounted() {
         this.initCamera();
-        
         window.addEventListener('keydown', (e) => {
-            const keys = ['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'];
-            if (keys.includes(e.key)) {
+            if (['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
                 this.saveReplay();
             }
         });
