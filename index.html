@@ -3,35 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Replay - 30s Buffer</title>
+    <title>Instant Replay - Dual Cam</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 20px; }
-        .container { max-width: 500px; margin: auto; }
-        video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 20px; transform: scaleX(-1); /* Mirror para selfie */ }
-        button { 
-            background: #e91e63; border: none; color: white; padding: 20px; 
-            border-radius: 50%; font-weight: bold; cursor: pointer; font-size: 1.1rem;
-            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.4); width: 120px; height: 120px;
+        :root { --primary: #00e676; --secondary: #2196f3; --danger: #ff5252; --bg: #121212; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: white; 
+            margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh;
         }
-        button:active { transform: scale(0.95); }
-        .status { margin-top: 10px; font-size: 0.9rem; color: #888; }
+        #app { text-align: center; width: 100%; max-width: 500px; padding: 20px; }
+        
+        .video-container {
+            position: relative; width: 100%; border-radius: 20px; overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #000;
+        }
+        video { width: 100%; display: block; background: #000; }
+        .mirror { transform: scaleX(-1); } /* Espelhar apenas a frontal */
+
+        .rec-indicator {
+            position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
+            background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 20px; font-size: 14px;
+        }
+        .dot { width: 10px; height: 10px; background: var(--danger); border-radius: 50%; margin-right: 8px; animation: blink 1s infinite; }
+        
+        .controls { margin-top: 25px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
+        
+        .btn-save {
+            width: 100px; height: 100px; border-radius: 50%; border: none;
+            background: linear-gradient(135deg, var(--primary), #00c853);
+            color: #003300; font-weight: bold; cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 230, 118, 0.4);
+        }
+
+        .btn-switch {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            color: white; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-size: 14px;
+        }
+
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--primary); color: #000; padding: 12px 25px;
+            border-radius: 30px; font-weight: bold; z-index: 100;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
 
-<div id="app" class="container">
-    <h2>🎥 Replay de 30s</h2>
-    
-    <video ref="videoPreview" autoplay playsinline muted></video>
-    
-    <div v-if="!cameraReady">
-        <p>Aguardando permissão da câmera...</p>
+<div id="app">
+    <div v-if="showToast" class="toast">🔥 REPLAY SALVO!</div>
+
+    <div class="video-container">
+        <div class="rec-indicator" v-if="cameraReady">
+            <div class="dot"></div> {{ videoChunks.length }}s
+        </div>
+        <video ref="videoPreview" :class="{ mirror: facingMode === 'user' }" autoplay playsinline muted></video>
     </div>
 
-    <div v-else>
-        <button @click="saveReplay">SALVAR<br>REPLAY</button>
-        <p class="status">Buffer: {{ videoChunks.length }}s / 30s</p>
+    <div class="controls">
+        <button class="btn-save" @click="saveReplay" :disabled="!cameraReady || isSaving">
+            {{ isSaving ? '...' : 'SALVAR' }}
+        </button>
+        
+        <button class="btn-switch" @click="toggleCamera" :disabled="isSaving">
+            📷 Alternar para Câmera {{ facingMode === 'user' ? 'Traseira' : 'Frontal' }}
+        </button>
     </div>
 </div>
 
@@ -40,16 +76,32 @@ new Vue({
     el: '#app',
     data: {
         cameraReady: false,
+        isSaving: false,
+        showToast: false,
         mediaRecorder: null,
         videoChunks: [],
-        stream: null
+        stream: null,
+        facingMode: 'environment' // 'user' para frontal, 'environment' para traseira
     },
     methods: {
-        async startCamera() {
+        async initCamera() {
+            this.cameraReady = false;
+            
+            // 1. Limpa o stream e o recorder anterior se existirem
+            if (this.stream) {
+                this.stream.getTracks().forEach(track => track.stop());
+            }
+            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                this.mediaRecorder.stop();
+            }
+
             try {
-                // Pede vídeo e áudio
                 this.stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user" }, // Mude para "environment" se quiser a câmera traseira
+                    video: { 
+                        facingMode: this.facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }, 
                     audio: true 
                 });
                 
@@ -57,54 +109,64 @@ new Vue({
                 this.setupRecorder();
                 this.cameraReady = true;
             } catch (err) {
-                alert("Erro ao acessar a câmera: " + err);
+                alert("Erro ao acessar câmera: " + err.message);
             }
         },
+
+        toggleCamera() {
+            // Alterna o modo e reinicia a câmera
+            this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
+            this.videoChunks = []; // Limpa o buffer ao trocar de câmera
+            this.initCamera();
+        },
+
         setupRecorder() {
-            // O tipo de vídeo (mimeType) pode variar entre Android (webm) e iOS (mp4)
-            const options = { mimeType: 'video/webm;codecs=vp8,opus' };
-            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                delete options.mimeType; // Deixa o navegador escolher o padrão se webm não for suportado
-            }
-
-            this.mediaRecorder = new MediaRecorder(this.stream, options);
-
+            const formats = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm'];
+            const selectedType = formats.find(type => MediaRecorder.isTypeSupported(type));
+            
+            this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: selectedType });
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     this.videoChunks.push(event.data);
-                    // Lógica do Buffer Circular: mantém os últimos 30 segundos
-                    if (this.videoChunks.length > 30) {
-                        this.videoChunks.shift();
-                    }
+                    if (this.videoChunks.length > 30) this.videoChunks.shift();
                 }
             };
-
-            // Coleta dados a cada 1 segundo (1000ms)
             this.mediaRecorder.start(1000);
-        },
-        saveReplay() {
-            if (this.videoChunks.length === 0) return;
 
-            const blob = new Blob(this.videoChunks, { type: this.videoChunks[0].type });
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.setActionHandler('play', this.saveReplay);
+                navigator.mediaSession.setActionHandler('pause', this.saveReplay);
+            }
+        },
+
+        saveReplay() {
+            if (this.isSaving || this.videoChunks.length < 2) return;
+            this.isSaving = true;
+            
+            const actualMime = this.videoChunks[0].type;
+            const extension = actualMime.includes('mp4') ? 'mp4' : 'webm';
+            const blob = new Blob(this.videoChunks, { type: actualMime });
             const url = URL.createObjectURL(blob);
             
-            // Cria um link temporário e simula o clique para download
             const a = document.createElement('a');
             a.href = url;
-            a.download = `replay-${Date.now()}.webm`;
-            document.body.appendChild(a);
+            a.download = `replay-${Date.now()}.${extension}`;
             a.click();
-            document.body.removeChild(a);
-            
-            // Opcional: Limpar o buffer após salvar?
-            // this.videoChunks = [];
+
+            this.showToast = true;
+            setTimeout(() => { 
+                this.showToast = false;
+                this.isSaving = false;
+            }, 3000);
         }
     },
     mounted() {
-        this.startCamera();
+        this.initCamera();
+        window.addEventListener('keydown', (e) => {
+            if (['Enter', ' ', 'VolumeUp', 'VolumeDown'].includes(e.key)) this.saveReplay();
+        });
     }
 });
 </script>
-
 </body>
 </html>
