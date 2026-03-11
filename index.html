@@ -3,77 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Beach Tennis Replay - WebM</title>
+    <title>Beach Tennis - Replay Fixo</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
     <style>
-        :root { --primary: #00e676; --secondary: #2196f3; --danger: #ff5252; --bg: #121212; }
-        body { 
-            font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: white; 
-            margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh;
-            overflow: hidden;
-        }
-        #app { text-align: center; width: 100%; max-width: 500px; padding: 20px; }
-        
-        .video-container {
-            position: relative; width: 100%; border-radius: 20px; overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #000;
-        }
-        video { width: 100%; display: block; background: #000; height: auto; }
+        :root { --primary: #00e676; --bg: #121212; }
+        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        #app { text-align: center; width: 100%; max-width: 450px; padding: 20px; }
+        .video-container { position: relative; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        video { width: 100%; display: block; }
         .mirror { transform: scaleX(-1); }
-
-        .rec-indicator {
-            position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
-            background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 20px; font-size: 14px;
-        }
-        .dot { width: 10px; height: 10px; background: var(--danger); border-radius: 50%; margin-right: 8px; animation: blink 1s infinite; }
-        
-        .controls { margin-top: 25px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
-        
-        .btn-save {
-            width: 110px; height: 110px; border-radius: 50%; border: none;
-            background: linear-gradient(135deg, var(--primary), #00c853);
-            color: #003300; font-weight: bold; cursor: pointer;
-            box-shadow: 0 0 20px rgba(0, 230, 118, 0.4);
-            transition: transform 0.1s;
-        }
-        .btn-save:active { transform: scale(0.9); }
-        .btn-save:disabled { background: #444; color: #888; box-shadow: none; }
-
-        .btn-switch {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-            color: white; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-size: 14px;
-        }
-
-        .toast {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: var(--primary); color: #000; padding: 12px 25px;
-            border-radius: 30px; font-weight: bold; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
+        .rec-indicator { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 20px; font-size: 12px; display: flex; align-items: center; }
+        .dot { width: 8px; height: 8px; background: #ff5252; border-radius: 50%; margin-right: 6px; animation: blink 1s infinite; }
+        .controls { margin-top: 20px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        .btn-save { width: 90px; height: 90px; border-radius: 50%; border: none; background: var(--primary); color: #003300; font-weight: bold; cursor: pointer; }
+        .btn-switch { background: rgba(255,255,255,0.1); border: none; color: white; padding: 10px 20px; border-radius: 20px; cursor: pointer; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
 
 <div id="app">
-    <transition name="fade">
-        <div v-if="showToast" class="toast">✔️ VÍDEO WEBM SALVO!</div>
-    </transition>
-
     <div class="video-container">
         <div class="rec-indicator" v-if="cameraReady">
-            <div class="dot"></div> BUFFER: {{ videoChunks.length }}s
+            <div class="dot"></div> BUFFER: {{ rollingBuffer.length }}s
         </div>
         <video ref="videoPreview" :class="{ mirror: facingMode === 'user' }" autoplay playsinline muted></video>
     </div>
 
     <div class="controls">
         <button class="btn-save" @click="saveReplay" :disabled="!cameraReady || isSaving">
-            {{ isSaving ? 'PROCESSANDO' : 'SALVAR 30s' }}
+            {{ isSaving ? '...' : 'SALVAR' }}
         </button>
-        
-        <button class="btn-switch" @click="toggleCamera" :disabled="isSaving">
-            🔄 Câmera {{ facingMode === 'user' ? 'Traseira' : 'Frontal' }}
-        </button>
+        <button class="btn-switch" @click="toggleCamera">🔄 Inverter Câmera</button>
     </div>
 </div>
 
@@ -83,104 +44,76 @@ new Vue({
     data: {
         cameraReady: false,
         isSaving: false,
-        showToast: false,
         mediaRecorder: null,
-        videoChunks: [],
+        headerChunk: null, // O "DNA" do vídeo (primeiro segundo)
+        rollingBuffer: [], // Os últimos 30 segundos
         stream: null,
-        facingMode: 'environment' // Começa pela traseira
+        facingMode: 'environment'
     },
     methods: {
         async initCamera() {
-            this.cameraReady = false;
-            
-            // Para tracks anteriores para liberar o hardware
-            if (this.stream) {
-                this.stream.getTracks().forEach(track => track.stop());
-            }
-
+            if (this.stream) this.stream.getTracks().forEach(t => t.stop());
             try {
                 this.stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: this.facingMode,
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }, 
+                    video: { facingMode: this.facingMode, width: 1280, height: 720 }, 
                     audio: true 
                 });
-                
                 this.$refs.videoPreview.srcObject = this.stream;
                 this.setupRecorder();
                 this.cameraReady = true;
-            } catch (err) {
-                alert("Erro ao acessar câmera: " + err.message);
-            }
+            } catch (err) { alert(err.message); }
+        },
+
+        setupRecorder() {
+            // Reinicia os buffers
+            this.headerChunk = null;
+            this.rollingBuffer = [];
+
+            const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+            this.mediaRecorder = new MediaRecorder(this.stream, options);
+
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    // O primeiro chunk que chega é o Header
+                    if (!this.headerChunk) {
+                        this.headerChunk = event.data;
+                    } else {
+                        this.rollingBuffer.push(event.data);
+                        // Mantém 30 segundos no buffer rotativo
+                        if (this.rollingBuffer.length > 30) {
+                            this.rollingBuffer.shift();
+                        }
+                    }
+                }
+            };
+            this.mediaRecorder.start(1000);
+        },
+
+        saveReplay() {
+            if (this.isSaving || this.rollingBuffer.length < 2) return;
+            this.isSaving = true;
+
+            // MONTAGEM DO ARQUIVO: Header + Buffer Rotativo
+            const finalBlob = new Blob([this.headerChunk, ...this.rollingBuffer], { type: 'video/webm' });
+            
+            const url = URL.createObjectURL(finalBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `replay-${Date.now()}.webm`;
+            a.click();
+
+            setTimeout(() => { this.isSaving = false; }, 2000);
         },
 
         toggleCamera() {
             this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
-            this.videoChunks = []; // Reseta o buffer ao trocar de ângulo
             this.initCamera();
-        },
-
-        setupRecorder() {
-            // Focando especificamente em WebM para maior estabilidade no buffer
-            const mimeType = 'video/webm;codecs=vp8,opus';
-            
-            this.mediaRecorder = new MediaRecorder(this.stream, { 
-                mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm' 
-            });
-
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.videoChunks.push(event.data);
-                    if (this.videoChunks.length > 30) {
-                        this.videoChunks.shift(); // Remove o segundo mais antigo
-                    }
-                }
-            };
-
-            // Solicita os dados a cada 1 segundo
-            this.mediaRecorder.start(1000);
-
-            // Integração com controles de mídia Bluetooth
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.setActionHandler('play', this.saveReplay);
-                navigator.mediaSession.setActionHandler('pause', this.saveReplay);
-            }
-        },
-
-        saveReplay() {
-            if (this.isSaving || this.videoChunks.length < 2) return;
-            this.isSaving = true;
-            
-            // Cria o blob final combinando todos os pedaços de 1s do buffer
-            const blob = new Blob(this.videoChunks, { type: 'video/webm' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `replay-bt-${Date.now()}.webm`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            // Feedback visual
-            this.showToast = true;
-            setTimeout(() => { 
-                this.showToast = false;
-                this.isSaving = false;
-            }, 3000);
         }
     },
     mounted() {
         this.initCamera();
-
-        // Atalhos de teclado para controles remotos Bluetooth
         window.addEventListener('keydown', (e) => {
-            const keys = ['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'];
-            if (keys.includes(e.key)) {
-                this.saveReplay();
-            }
+            if (['Enter', ' ', 'VolumeUp', 'VolumeDown'].includes(e.key)) this.saveReplay();
         });
     }
 });
