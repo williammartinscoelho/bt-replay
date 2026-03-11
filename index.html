@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Beach Tennis Replay - v1.0.7</title>
+    <title>Beach Tennis Replay - v1.0.8</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
     <style>
         :root { --primary: #00e676; --bg: #121212; --text-muted: #888; }
@@ -25,16 +25,16 @@
 
         .rec-indicator {
             position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
-            background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 20px; font-size: 12px; z-index: 10;
+            background: rgba(0,0,0,0.8); padding: 5px 12px; border-radius: 20px; font-size: 12px; z-index: 10; font-weight: bold;
         }
-        .dot { width: 8px; height: 8px; background: #ff5252; border-radius: 50%; margin-right: 6px; animation: blink 1s infinite; }
+        .dot { width: 10px; height: 10px; background: #ff5252; border-radius: 50%; margin-right: 8px; animation: blink 1s infinite; }
         
         .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 15px; align-items: center; padding-bottom: 30px; }
         .btn-save {
-            width: 100px; height: 100px; border-radius: 50%; border: none;
+            width: 110px; height: 110px; border-radius: 50%; border: none;
             background: linear-gradient(135deg, var(--primary), #00c853);
-            color: #003300; font-weight: bold; cursor: pointer;
-            box-shadow: 0 0 20px rgba(0, 230, 118, 0.4);
+            color: #003300; font-weight: bold; cursor: pointer; font-size: 15px;
+            box-shadow: 0 0 20px rgba(0, 230, 118, 0.4); transition: transform 0.1s;
         }
         .btn-save:active { transform: scale(0.9); }
         .btn-save:disabled { background: #444; color: #888; box-shadow: none; opacity: 0.5; }
@@ -48,21 +48,21 @@
 
 <div id="app">
     <div class="app-header">
-        <h1>REPLAY RECORDER <span class="version-badge">v1.0.7</span></h1>
+        <h1>REPLAY RECORDER <span class="version-badge">v1.0.8</span></h1>
     </div>
 
-    <div v-if="showToast" class="toast">✔️ LANCE SALVO!</div>
+    <div v-if="showToast" class="toast">✔️ LANCE SALVO COM SUCESSO!</div>
 
     <div class="video-container">
         <div class="rec-indicator" v-if="cameraReady">
-            <div class="dot"></div> BUFFER: {{ rollingBuffer.length }}s / 30s
+            <div class="dot"></div> PRONTO: {{ longestBuffer }}s
         </div>
         <video ref="videoPreview" :class="{ mirror: facingMode === 'user' }" autoplay playsinline muted></video>
     </div>
 
     <div class="controls">
-        <button class="btn-save" @click="saveReplay" :disabled="!cameraReady || isSaving">
-            {{ isSaving ? '...' : 'SALVAR' }}
+        <button class="btn-save" @click="saveReplay" :disabled="!cameraReady || isSaving || longestBuffer < 5">
+            {{ isSaving ? 'PROCESSANDO' : 'SALVAR' }}
         </button>
         <button class="btn-switch" @click="toggleCamera">🔄 Inverter Câmera</button>
     </div>
@@ -75,72 +75,108 @@ new Vue({
         cameraReady: false,
         isSaving: false,
         showToast: false,
-        mediaRecorder: null,
-        headerChunk: null,
-        rollingBuffer: [],
         stream: null,
         facingMode: 'environment',
-        refreshInterval: null
+        recorders: [], // Agora usamos múltiplos gravadores
+        longestBuffer: 0,
+        uiInterval: null,
+        startupTimeout: null
     },
     methods: {
         async initCamera() {
             this.cameraReady = false;
+            this.clearEngines(); // Limpa gravadores antigos se houver
+
             if (this.stream) this.stream.getTracks().forEach(t => t.stop());
 
             try {
                 this.stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: this.facingMode, width: 1280, height: 720 }, 
+                    video: { facingMode: this.facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, 
                     audio: true 
                 });
                 this.$refs.videoPreview.srcObject = this.stream;
-                this.setupRecorder();
+                
+                this.startDualEngine();
                 this.cameraReady = true;
 
-                // v1.0.7: Reinicia o recorder a cada 5 min para evitar corrupção por timestamps longos
-                if (this.refreshInterval) clearInterval(this.refreshInterval);
-                this.refreshInterval = setInterval(() => {
-                    if (!this.isSaving) {
-                        console.log("Reiniciando recorder para manter saúde dos frames...");
-                        this.setupRecorder();
-                    }
-                }, 300000); // 5 minutos
-
-            } catch (err) { alert("Erro: " + err.message); }
+            } catch (err) { alert("Erro na câmera: " + err.message); }
         },
 
-        setupRecorder() {
-            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-                this.mediaRecorder.stop();
-            }
-            
-            this.headerChunk = null;
-            this.rollingBuffer = [];
+        startDualEngine() {
+            // Cria o primeiro gravador imediatamente (T = 0s)
+            this.createRecorderEngine();
 
-            // Aumentamos o bitrate para forçar mais qualidade e estabilidade nos frames
-            const options = { 
-                mimeType: 'video/webm;codecs=vp8,opus',
-                videoBitsPerSecond: 2500000 // 2.5 Mbps
-            };
-            
-            this.mediaRecorder = new MediaRecorder(this.stream, options);
+            // Cria o segundo gravador com 15 segundos de atraso (T = 15s)
+            this.startupTimeout = setTimeout(() => {
+                if (this.cameraReady) this.createRecorderEngine();
+            }, 15000);
 
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    if (!this.headerChunk) {
-                        this.headerChunk = event.data;
-                    } else {
-                        this.rollingBuffer.push(event.data);
-                        if (this.rollingBuffer.length > 30) this.rollingBuffer.shift();
+            // Loop de atualização da UI e checagem de limite (30s)
+            this.uiInterval = setInterval(() => {
+                let maxAge = 0;
+                this.recorders.forEach(rec => {
+                    let age = Math.floor((Date.now() - rec.startTime) / 1000);
+                    
+                    // Se o gravador bateu 30 segundos, reinicia ele silenciosamente
+                    if (age >= 30) {
+                        rec.stopSilently();
+                        rec.startRecording(this.stream);
+                        age = 0;
                     }
-                }
-            };
-            // Usar um timeslice menor (500ms) ajuda o recorder a fechar blocos mais rápido
-            this.mediaRecorder.start(500); 
+                    if (age > maxAge) maxAge = age;
+                });
+                this.longestBuffer = maxAge;
+            }, 1000);
 
+            // Integração Bluetooth para controles de fone
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.setActionHandler('play', this.saveReplay);
                 navigator.mediaSession.setActionHandler('pause', this.saveReplay);
             }
+        },
+
+        createRecorderEngine() {
+            const engine = {
+                mr: null,
+                chunks: [],
+                startTime: 0,
+                startRecording(stream) {
+                    this.chunks = [];
+                    this.startTime = Date.now();
+                    const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+                    // Se o navegador não suportar VP8 nativo, usa o padrão WebM
+                    this.mr = new MediaRecorder(stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
+                    
+                    this.mr.ondataavailable = e => { if (e.data.size > 0) this.chunks.push(e.data); };
+                    this.mr.start(); // Grava contínuo, sem timeslice picotado
+                },
+                stopSilently() {
+                    if (this.mr && this.mr.state !== 'inactive') {
+                        this.mr.onstop = null; // Impede gatilhos residuais
+                        this.mr.stop();
+                    }
+                },
+                saveAndRestart(stream) {
+                    return new Promise(resolve => {
+                        this.mr.onstop = () => {
+                            const blob = new Blob(this.chunks, { type: 'video/webm' });
+                            resolve(blob);
+                            this.startRecording(stream); // Volta a gravar no mesmo milissegundo
+                        };
+                        this.mr.stop();
+                    });
+                }
+            };
+            engine.startRecording(this.stream);
+            this.recorders.push(engine);
+        },
+
+        clearEngines() {
+            this.recorders.forEach(rec => rec.stopSilently());
+            this.recorders = [];
+            clearInterval(this.uiInterval);
+            clearTimeout(this.startupTimeout);
+            this.longestBuffer = 0;
         },
 
         toggleCamera() {
@@ -148,33 +184,52 @@ new Vue({
             this.initCamera();
         },
 
-        saveReplay() {
-            if (this.isSaving || this.rollingBuffer.length < 5) return;
+        async saveReplay() {
+            // Evita salvar antes de ter pelo menos 5 segundos de jogo gravado
+            if (this.isSaving || this.longestBuffer < 5) return;
             this.isSaving = true;
-            
-            // v1.0.7: Criação do Blob com verificação de integridade básica
-            const finalBlob = new Blob([this.headerChunk, ...this.rollingBuffer], { type: 'video/webm' });
-            const url = URL.createObjectURL(finalBlob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `replay-${Date.now()}.webm`;
-            a.click();
 
-            this.showToast = true;
-            setTimeout(() => { 
-                this.showToast = false;
-                this.isSaving = false;
-            }, 3000);
+            // Encontra o gravador que está rodando há mais tempo
+            let bestRecorder = null;
+            let maxAge = -1;
+            
+            this.recorders.forEach(rec => {
+                let age = Date.now() - rec.startTime;
+                if (age > maxAge) {
+                    maxAge = age;
+                    bestRecorder = rec;
+                }
+            });
+
+            if (bestRecorder) {
+                // Finaliza o gravador campeão e extrai o arquivo perfeito
+                const finalBlob = await bestRecorder.saveAndRestart(this.stream);
+                const url = URL.createObjectURL(finalBlob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `lance-perfeito-${Date.now()}.webm`;
+                a.click();
+
+                this.showToast = true;
+                setTimeout(() => { 
+                    this.showToast = false; 
+                    this.isSaving = false;
+                }, 3000);
+            }
         }
     },
     mounted() {
         this.initCamera();
+        
+        // Atalho para controles Bluetooth
         window.addEventListener('keydown', (e) => {
-            if (['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                this.saveReplay();
-            }
+            const keys = ['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'];
+            if (keys.includes(e.key)) this.saveReplay();
         });
+    },
+    beforeDestroy() {
+        this.clearEngines();
     }
 });
 </script>
