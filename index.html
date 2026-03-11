@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instant Replay - 30s Buffer</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 20px; }
+        .container { max-width: 500px; margin: auto; }
+        video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 20px; transform: scaleX(-1); /* Mirror para selfie */ }
+        button { 
+            background: #e91e63; border: none; color: white; padding: 20px; 
+            border-radius: 50%; font-weight: bold; cursor: pointer; font-size: 1.1rem;
+            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.4); width: 120px; height: 120px;
+        }
+        button:active { transform: scale(0.95); }
+        .status { margin-top: 10px; font-size: 0.9rem; color: #888; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="container">
+    <h2>🎥 Replay de 30s</h2>
+    
+    <video ref="videoPreview" autoplay playsinline muted></video>
+    
+    <div v-if="!cameraReady">
+        <p>Aguardando permissão da câmera...</p>
+    </div>
+
+    <div v-else>
+        <button @click="saveReplay">SALVAR<br>REPLAY</button>
+        <p class="status">Buffer: {{ videoChunks.length }}s / 30s</p>
+    </div>
+</div>
+
+<script>
+new Vue({
+    el: '#app',
+    data: {
+        cameraReady: false,
+        mediaRecorder: null,
+        videoChunks: [],
+        stream: null
+    },
+    methods: {
+        async startCamera() {
+            try {
+                // Pede vídeo e áudio
+                this.stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" }, // Mude para "environment" se quiser a câmera traseira
+                    audio: true 
+                });
+                
+                this.$refs.videoPreview.srcObject = this.stream;
+                this.setupRecorder();
+                this.cameraReady = true;
+            } catch (err) {
+                alert("Erro ao acessar a câmera: " + err);
+            }
+        },
+        setupRecorder() {
+            // O tipo de vídeo (mimeType) pode variar entre Android (webm) e iOS (mp4)
+            const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                delete options.mimeType; // Deixa o navegador escolher o padrão se webm não for suportado
+            }
+
+            this.mediaRecorder = new MediaRecorder(this.stream, options);
+
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    this.videoChunks.push(event.data);
+                    // Lógica do Buffer Circular: mantém os últimos 30 segundos
+                    if (this.videoChunks.length > 30) {
+                        this.videoChunks.shift();
+                    }
+                }
+            };
+
+            // Coleta dados a cada 1 segundo (1000ms)
+            this.mediaRecorder.start(1000);
+        },
+        saveReplay() {
+            if (this.videoChunks.length === 0) return;
+
+            const blob = new Blob(this.videoChunks, { type: this.videoChunks[0].type });
+            const url = URL.createObjectURL(blob);
+            
+            // Cria um link temporário e simula o clique para download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `replay-${Date.now()}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // Opcional: Limpar o buffer após salvar?
+            // this.videoChunks = [];
+        }
+    },
+    mounted() {
+        this.startCamera();
+    }
+});
+</script>
+
+</body>
+</html>
