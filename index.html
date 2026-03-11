@@ -3,25 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Beach Tennis Replay - v1.0.5</title>
+    <title>Beach Tennis Replay - v1.0.6</title>
     <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
     <style>
         :root { --primary: #00e676; --bg: #121212; --text-muted: #888; }
-        body { 
-            font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: white; 
-            margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh;
-            overflow: hidden;
-        }
-        #app { text-align: center; width: 100%; max-width: 450px; padding: 20px; position: relative; }
         
-        /* Header com Versão */
-        .app-header { margin-bottom: 15px; }
-        .app-header h1 { font-size: 1.2rem; margin: 0; color: var(--primary); }
-        .version-badge { font-size: 0.7rem; background: #333; padding: 2px 8px; border-radius: 10px; color: var(--text-muted); }
+        /* v1.0.6: Ajuste de scroll e altura */
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background-color: var(--bg); 
+            color: white; 
+            margin: 0; 
+            padding: 0;
+            display: flex; 
+            justify-content: center; 
+            min-height: 100vh; /* Permite crescer além da tela */
+            overflow-y: auto;  /* Habilita scroll vertical se necessário */
+        }
+
+        #app { 
+            text-align: center; 
+            width: 100%; 
+            max-width: 450px; 
+            padding: 20px; 
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .app-header { margin-bottom: 5px; }
+        .app-header h1 { font-size: 1.1rem; margin: 0; color: var(--primary); }
+        .version-badge { font-size: 0.6rem; background: #333; padding: 2px 8px; border-radius: 10px; color: var(--text-muted); vertical-align: middle; }
 
         .video-container {
-            position: relative; width: 100%; border-radius: 20px; overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #000;
+            position: relative; 
+            width: 100%; 
+            border-radius: 20px; 
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            background: #000;
         }
         video { width: 100%; display: block; background: #000; }
         .mirror { transform: scaleX(-1); }
@@ -29,10 +49,18 @@
         .rec-indicator {
             position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
             background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 20px; font-size: 12px;
+            z-index: 10;
         }
         .dot { width: 8px; height: 8px; background: #ff5252; border-radius: 50%; margin-right: 6px; animation: blink 1s infinite; }
         
-        .controls { margin-top: 25px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        .controls { 
+            margin-top: 10px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+            align-items: center; 
+            padding-bottom: 30px; /* Garante espaço no final do scroll */
+        }
         
         .btn-save {
             width: 100px; height: 100px; border-radius: 50%; border: none;
@@ -46,7 +74,7 @@
 
         .btn-switch {
             background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
-            color: white; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-size: 13px;
+            color: white; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-size: 13px;
         }
 
         .toast {
@@ -61,14 +89,14 @@
 
 <div id="app">
     <div class="app-header">
-        <h1>REPLAY RECORDER <span class="version-badge">v1.0.5</span></h1>
+        <h1>REPLAY RECORDER <span class="version-badge">v1.0.6</span></h1>
     </div>
 
     <div v-if="showToast" class="toast">✔️ LANCE SALVO!</div>
 
     <div class="video-container">
         <div class="rec-indicator" v-if="cameraReady">
-            <div class="dot"></div> BUFFER 105: {{ rollingBuffer.length }}s / 30s
+            <div class="dot"></div> BUFFER: {{ rollingBuffer.length }}s / 30s
         </div>
         <video ref="videoPreview" :class="{ mirror: facingMode === 'user' }" autoplay playsinline muted></video>
     </div>
@@ -88,13 +116,12 @@
 new Vue({
     el: '#app',
     data: {
-        version: '1.0.5',
         cameraReady: false,
         isSaving: false,
         showToast: false,
         mediaRecorder: null,
-        headerChunk: null, // Guardará o primeiro segundo (Metadata)
-        rollingBuffer: [], // Guardará os últimos 30 segundos
+        headerChunk: null,
+        rollingBuffer: [],
         stream: null,
         facingMode: 'environment'
     },
@@ -124,7 +151,6 @@ new Vue({
         },
 
         setupRecorder() {
-            // Reinicia os buffers ao configurar novo recorder
             this.headerChunk = null;
             this.rollingBuffer = [];
 
@@ -133,7 +159,6 @@ new Vue({
 
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
-                    // O segredo v1.0.5: O primeiro pedaço nunca é descartado
                     if (!this.headerChunk) {
                         this.headerChunk = event.data;
                     } else {
@@ -146,7 +171,6 @@ new Vue({
             };
             this.mediaRecorder.start(1000);
 
-            // Controle via MediaSession (Botão de Play/Pause de fones)
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.setActionHandler('play', this.saveReplay);
                 navigator.mediaSession.setActionHandler('pause', this.saveReplay);
@@ -162,7 +186,6 @@ new Vue({
             if (this.isSaving || this.rollingBuffer.length < 2) return;
             this.isSaving = true;
             
-            // Concatena: Header (Metadados) + Rolling Buffer (Ação)
             const finalBlob = new Blob([this.headerChunk, ...this.rollingBuffer], { type: 'video/webm' });
             const url = URL.createObjectURL(finalBlob);
             
@@ -181,7 +204,6 @@ new Vue({
     mounted() {
         this.initCamera();
         
-        // Atalho para controles Bluetooth (Teclado)
         window.addEventListener('keydown', (e) => {
             const keys = ['Enter', ' ', 'VolumeUp', 'VolumeDown', 'ArrowUp', 'ArrowDown'];
             if (keys.includes(e.key)) {
