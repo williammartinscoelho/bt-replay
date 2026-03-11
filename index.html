@@ -68,7 +68,7 @@
 
     <div class="video-container">
         <div class="rec-indicator" v-if="cameraReady">
-            <div class="dot"></div> BUFFER: {{ rollingBuffer.length }}s / 30s
+            <div class="dot"></div> BUFFER 105: {{ rollingBuffer.length }}s / 30s
         </div>
         <video ref="videoPreview" :class="{ mirror: facingMode === 'user' }" autoplay playsinline muted></video>
     </div>
